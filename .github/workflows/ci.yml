@@ -1,0 +1,41 @@
+name: CI
+
+# Run on every push and pull request targeting main.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the repository so the workflow can access the code.
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # Install the Go version declared in go.mod. cache: true also caches
+      # the Go module download cache and build cache (keyed on go.sum),
+      # which speeds up later runs.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Download all module dependencies (served from the cache when possible).
+      - name: Download dependencies
+        run: go mod download
+
+      # Catch common mistakes such as bad format strings and unreachable code.
+      - name: Vet
+        run: go vet ./...
+
+      # Make sure every package in the project compiles.
+      - name: Build
+        run: go build ./...
+
+      # Run all tests verbosely with the race detector to catch data races.
+      - name: Test
+        run: go test -v -race ./...
