@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --fg: #1f2933;
+    --muted: #6b7785;
+    --cell: #ffffff;
+    --cell-hover: #eef2f7;
+    --border: #d5dbe3;
+    --x: #2563eb;
+    --o: #db2777;
+    --win: #bbf7d0;
+    --accent: #1f2933;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181d;
+      --fg: #e6e9ee;
+      --muted: #98a2b0;
+      --cell: #1d232b;
+      --cell-hover: #262e38;
+      --border: #333c48;
+      --x: #60a5fa;
+      --o: #f472b6;
+      --win: #14532d;
+      --accent: #e6e9ee;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { margin: 0; font-size: 1.5rem; }
+  #status {
+    min-height: 3.2em;
+    width: min(92vw, 360px);
+    text-align: center;
+    font-size: 1.05rem;
+    line-height: 1.4;
+  }
+  #status .sub { display: block; color: var(--muted); font-size: 0.9rem; }
+  #status.error { color: #dc2626; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: min(92vw, 360px);
+  }
+  .cell {
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--cell);
+    font-size: clamp(2rem, 14vw, 3.5rem);
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--fg);
+    padding: 0;
+    touch-action: manipulation;
+  }
+  .cell.X { color: var(--x); }
+  .cell.O { color: var(--o); }
+  .cell.win { background: var(--win); }
+  #board.enabled .cell:not(.X):not(.O):hover { background: var(--cell-hover); }
+  #board:not(.enabled) .cell { cursor: default; }
+  #again {
+    padding: 10px 22px;
+    font-size: 1rem;
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--bg);
+    cursor: pointer;
+  }
+  #again[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <h1>Tic-Tac-Toe</h1>
+  <div id="status" aria-live="polite">Connecting...</div>
+  <div id="board"></div>
+  <button id="again" hidden>Play again</button>
+
+<script>
+(function () {
+  "use strict";
+
+  var WIN_LINES = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6]
+  ];
+
+  var boardEl = document.getElementById("board");
+  var statusEl = document.getElementById("status");
+  var againBtn = document.getElementById("again");
+  var cells = [];
+
+  var ws = null;
+  var mySymbol = null;
+  var myTurn = false;       // true only between YOUR_TURN and our next click
+  var pendingPos = null;    // our last move, awaiting server acceptance
+  var gameOver = false;
+  var baseStatus = "";      // status text to restore after a transient error
+  var errorTimer = null;
+
+  // Build the 3x3 grid; each button's index is its board position (row-major).
+  for (var i = 0; i < 9; i++) {
+    var b = document.createElement("button");
+    b.className = "cell";
+    b.setAttribute("aria-label", "Cell " + (i + 1));
+    b.dataset.pos = i;
+    b.addEventListener("click", onCellClick);
+    boardEl.appendChild(b);
+    cells.push(b);
+  }
+
+  // Set the status bar text, with an optional smaller second line.
+  function setStatus(text, sub) {
+    baseStatus = { text: text, sub: sub };
+    renderStatus(baseStatus);
+  }
+
+  function renderStatus(s) {
+    statusEl.classList.remove("error");
+    statusEl.textContent = s.text;
+    if (s.sub) {
+      var span = document.createElement("span");
+      span.className = "sub";
+      span.textContent = s.sub;
+      statusEl.appendChild(span);
+    }
+  }
+
+  // Show an error briefly, then restore the previous status.
+  function flashError(text) {
+    clearTimeout(errorTimer);
+    statusEl.classList.add("error");
+    statusEl.textContent = text;
+    errorTimer = setTimeout(function () { renderStatus(baseStatus); }, 2500);
+  }
+
+  // Put a mark on a cell (or clear it when symbol is "").
+  function setCell(pos, symbol) {
+    var c = cells[pos];
+    c.textContent = symbol;
+    c.classList.remove("X", "O");
+    if (symbol) c.classList.add(symbol);
+  }
+
+  // Enable or disable board clicks.
+  function setEnabled(on) {
+    myTurn = on;
+    boardEl.classList.toggle("enabled", on);
+  }
+
+  // Clear the board and all per-game state for a fresh game.
+  function resetBoard() {
+    for (var i = 0; i < 9; i++) {
+      setCell(i, "");
+      cells[i].classList.remove("win");
+    }
+    mySymbol = null;
+    pendingPos = null;
+    gameOver = false;
+    setEnabled(false);
+    againBtn.hidden = true;
+  }
+
+  // Send a move when an empty cell is clicked on our turn; ignored otherwise.
+  function onCellClick(e) {
+    var pos = Number(e.currentTarget.dataset.pos);
+    if (!myTurn || gameOver || cells[pos].textContent) return;
+    ws.send(JSON.stringify({ type: "MOVE", payload: { position: pos } }));
+    // Show the mark right away; the server does not echo our own moves.
+    pendingPos = pos;
+    setCell(pos, mySymbol);
+    setEnabled(false);
+    setStatus("Waiting for opponent's move...");
+  }
+
+  // Return the winning line for the board, or null.
+  function findWinLine(board) {
+    for (var i = 0; i < WIN_LINES.length; i++) {
+      var l = WIN_LINES[i], a = board[l[0]];
+      if (a && a === board[l[1]] && a === board[l[2]]) return l;
+    }
+    return null;
+  }
+
+  // Message handlers, keyed by the server's message type.
+  var handlers = {
+    // WAITING: connected, but no opponent has been paired yet.
+    WAITING: function () {
+      setStatus("Waiting for opponent...");
+    },
+
+    // START: game begins. Remember our symbol and who moves first.
+    // The server sends goesFirst; goes_first is accepted too.
+    START: function (p) {
+      mySymbol = p.symbol;
+      var first = p.goesFirst !== undefined ? p.goesFirst : p.goes_first;
+      setStatus(
+        "You are " + mySymbol,
+        first ? "You go first" : "Opponent goes first"
+      );
+    },
+
+    // YOUR_TURN: our move has been requested, so enable the board.
+    YOUR_TURN: function () {
+      pendingPos = null;
+      setEnabled(true);
+      setStatus("Your turn (" + mySymbol + ")");
+    },
+
+    // OPPONENT_MOVE: draw the opponent's mark at the given position.
+    OPPONENT_MOVE: function (p) {
+      setCell(p.position, mySymbol === "X" ? "O" : "X");
+    },
+
+    // GAME_OVER: show the result, lock the board, highlight a winning line
+    // (WIN/LOSE only) and offer a rematch.
+    GAME_OVER: function (p) {
+      gameOver = true;
+      pendingPos = null;
+      setEnabled(false);
+      for (var i = 0; i < 9; i++) setCell(i, p.board[i] || "");
+
+      var text = { WIN: "You win!", LOSE: "You lose.", DRAW: "It's a draw." }[p.result] || "Game over";
+      setStatus(text, p.reason || "");
+
+      if (p.result === "WIN" || p.result === "LOSE") {
+        var line = findWinLine(p.board);
+        if (line) line.forEach(function (pos) { cells[pos].classList.add("win"); });
+      }
+      againBtn.hidden = false;
+    },
+
+    // ERROR: show the message briefly. The server re-sends YOUR_TURN after
+    // a rejected move, so undo our tentative mark and keep the board usable.
+    ERROR: function (p) {
+      if (pendingPos !== null) {
+        setCell(pendingPos, "");
+        pendingPos = null;
+        setEnabled(true);
+      }
+      flashError(p.message || "Something went wrong");
+    }
+  };
+
+  // Open a WebSocket to /ws on the same host, using wss:// on https pages.
+  function connect() {
+    resetBoard();
+    setStatus("Connecting...");
+    var scheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+    var sock = new WebSocket(scheme + window.location.host + "/ws");
+    ws = sock;
+
+    sock.onmessage = function (ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      var h = handlers[msg.type];
+      if (h) h(msg.payload || {});
+    };
+
+    sock.onclose = function () {
+      if (sock !== ws || gameOver) return;
+      setEnabled(false);
+      setStatus("Disconnected from server.");
+      againBtn.hidden = false;
+    };
+  }
+
+  // Play again: drop any old socket and join a new game.
+  againBtn.addEventListener("click", function () {
+    if (ws) { ws.onclose = null; ws.close(); }
+    connect();
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>
