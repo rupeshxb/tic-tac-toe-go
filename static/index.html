@@ -58,6 +58,14 @@
     font-size: 0.85rem;
     line-height: 1.4;
   }
+  #cmd {
+    display: block;
+    margin-top: 6px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    word-break: break-all;
+  }
   #status {
     min-height: 3.2em;
     width: min(92vw, 360px);
@@ -104,7 +112,11 @@
 </head>
 <body>
   <h1>Tic-Tac-Toe</h1>
-  <p id="hint">This game needs two players. Open this page in another browser tab or on another device, and keep both open to play.</p>
+  <p id="hint">
+    This game needs two players. Your opponent can join from another browser tab,
+    another device, or the terminal client. Keep both open to play.
+    <code id="cmd"></code>
+  </p>
   <div id="status" aria-live="polite">Connecting...</div>
   <div id="board"></div>
   <button id="again" hidden>Play again</button>
@@ -123,6 +135,11 @@
   var statusEl = document.getElementById("status");
   var againBtn = document.getElementById("again");
   var cells = [];
+
+  // Show the terminal-client command pointing at this same server.
+  var wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+  document.getElementById("cmd").textContent =
+    "go run ./client -server " + wsScheme + window.location.host + "/ws";
 
   var ws = null;
   var mySymbol = null;
@@ -220,7 +237,7 @@
   var handlers = {
     // WAITING: connected, but no opponent has been paired yet.
     WAITING: function () {
-      setStatus("Waiting for opponent...", "Open this page in another browser tab or on another device to start.");
+      setStatus("Waiting for opponent...", "Join from another browser tab, another device, or the terminal client.");
     },
 
     // START: game begins. Remember our symbol and who moves first.
