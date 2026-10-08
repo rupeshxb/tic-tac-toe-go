@@ -46,6 +46,18 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   h1 { margin: 0; font-size: 1.5rem; }
+  #hint {
+    margin: 0;
+    width: min(92vw, 360px);
+    padding: 8px 12px;
+    text-align: center;
+    color: var(--fg);
+    background: var(--cell);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
   #status {
     min-height: 3.2em;
     width: min(92vw, 360px);
@@ -92,6 +104,7 @@
 </head>
 <body>
   <h1>Tic-Tac-Toe</h1>
+  <p id="hint">This game needs two players. Open this page in another browser tab or on another device, and keep both open to play.</p>
   <div id="status" aria-live="polite">Connecting...</div>
   <div id="board"></div>
   <button id="again" hidden>Play again</button>
@@ -207,7 +220,7 @@
   var handlers = {
     // WAITING: connected, but no opponent has been paired yet.
     WAITING: function () {
-      setStatus("Waiting for opponent...");
+      setStatus("Waiting for opponent...", "Open this page in another browser tab or on another device to start.");
     },
 
     // START: game begins. Remember our symbol and who moves first.
